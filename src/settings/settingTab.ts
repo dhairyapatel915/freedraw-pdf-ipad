@@ -202,6 +202,18 @@ export class PDFAnnotatorSettingTab extends PluginSettingTab {
 		};
 		return [
 			{
+				name: "Ballpoint pen",
+				desc: "Solid, rounded ink with gentle pressure variation. Applies to new strokes.",
+				render: (setting) => {
+					setting.setName("Ballpoint pen")
+						.setDesc("Solid, rounded ink with gentle pressure variation. Applies to new strokes.")
+						.addButton((button) => button.setButtonText("Use ballpoint").onClick(async () => {
+							await updateInkRenderSettings({ thinning: 0.15, streamline: 0.12, smoothing: 0.5, easing: "linear", taperStart: 0, taperEnd: 0, pressureMode: "auto" });
+							this.display();
+						}));
+				}
+			},
+			{
 				name: "Pressure input",
 				desc: "Applies to new strokes only. Use drawing speed or pressure reported by an active stylus.",
 				render: (setting) => {
@@ -436,6 +448,7 @@ export class PDFAnnotatorSettingTab extends PluginSettingTab {
 		this.renderSettingDefinitions(containerEl, definitions, [
 			"Finger input",
 			"Stroke preview",
+			"Ballpoint pen",
 			"Pressure input"
 		]);
 

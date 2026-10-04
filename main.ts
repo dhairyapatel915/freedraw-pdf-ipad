@@ -2526,6 +2526,8 @@ class NativePdfAnnotatorSession {
 		viewContentEl.appendChild(this.toolPreviewEl);
 		this.syncRenderTelemetry();
 		viewContentEl.addEventListener("touchstart", this.handleZoomGestureTouchStart, { capture: true, passive: true });
+		this.ownerDocument.addEventListener("touchend", this.handleZoomGestureTouchEnd, { capture: true, passive: true });
+		this.ownerDocument.addEventListener("touchcancel", this.handleZoomGestureTouchEnd, { capture: true, passive: true });
 		viewContentEl.addEventListener("wheel", this.handleZoomGestureWheel, { capture: true, passive: true });
 		viewContentEl.addEventListener("gesturestart", this.handleZoomGestureStart, { capture: true, passive: true });
 		viewContentEl.addEventListener("pointerdown", this.handleViewPointerDown, { capture: true });
@@ -4521,7 +4523,7 @@ class NativePdfAnnotatorSession {
 	}
 
 	private isViewportMotionActive(): boolean {
-		return this.isPdfScrolling || this.isFingerPanRenderingPaused();
+		return this.multiTouchNavigation || this.isPdfScrolling || this.isFingerPanRenderingPaused();
 	}
 
 	private pauseCommittedRenderingForViewportMotion(): void {
@@ -9132,10 +9134,25 @@ class NativePdfAnnotatorSession {
 		this.handleFallbackPointerDown(event);
 	};
 
+	private multiTouchNavigation = false;
+
+	private readonly handleZoomGestureTouchEnd = (event: TouchEvent): void => {
+		if (this.multiTouchNavigation && event.touches.length === 0) {
+			this.multiTouchNavigation = false;
+			this.applyOverlayMode();
+			this.scheduleSyncPages();
+			this.resumeCommittedRenderingAfterFingerPan();
+		}
+	};
+
 	private readonly handleZoomGestureTouchStart = (event: TouchEvent): void => {
-		if (event.touches.length < 2) {
+		if (this.multiTouchNavigation || event.touches.length < 2) {
 			return;
 		}
+		this.multiTouchNavigation = true;
+		this.forceFinishStalePdfInteraction("Finished input before pinch zoom");
+		this.applyOverlayMode();
+		this.pauseCommittedRenderingForViewportMotion();
 		this.captureZoomScrollAnchor();
 	};
 
@@ -9151,6 +9168,7 @@ class NativePdfAnnotatorSession {
 	};
 
 	private readonly handleDocumentPointerDown = (event: PointerEvent): void => {
+		if (this.multiTouchNavigation && event.pointerType === "touch") { return; }
 		if (this.handleFingerPanPointerDown(event)) {
 			return;
 		}
@@ -9178,6 +9196,11 @@ class NativePdfAnnotatorSession {
 	}
 
 	private readonly handleDocumentTouchStart = (event: TouchEvent): void => {
+		const targetElement = isDomElement(event.target) ? event.target : null;
+		if (event.touches.length >= 2 && targetElement && this.getViewContentEl()?.contains(targetElement)) {
+			this.handleZoomGestureTouchStart(event);
+			return;
+		}
 		const pendingPointer = this.pendingWebKitTouchPointer;
 		const touches = Array.from(event.changedTouches) as Array<Touch & {
 			altitudeAngle?: number;
@@ -9202,13 +9225,13 @@ class NativePdfAnnotatorSession {
 			this.clearPendingWebKitTouchPointer();
 			return;
 		}
-		event.preventDefault();
-		event.stopImmediatePropagation();
 		const stylusTouch = isWebKitStylusTouch(matchingTouch);
 		this.clearPendingWebKitTouchPointer();
 		if (!stylusTouch) {
 			return;
 		}
+		event.preventDefault();
+		event.stopImmediatePropagation();
 		this.finishFingerPan(false);
 		const surface = this.ensureSurfaceAtClientPoint(matchingTouch.clientX, matchingTouch.clientY);
 		if (!surface) {
@@ -9551,6 +9574,7 @@ class NativePdfAnnotatorSession {
 
 	private handlePointerDownForCanvas(event: PointerEvent, canvas: HTMLCanvasElement, forceWebKitStylus = false): void {
 		this.selectionBackground = null;
+		if (this.multiTouchNavigation && event.pointerType === "touch") { return; }
 		if (!this.annotationMode) {
 			this.refreshStatus("Could not start ink: annotation mode is off", 4000);
 			return;
@@ -11079,7 +11103,7 @@ class NativePdfAnnotatorSession {
 		context.lineJoin = "round";
 		context.strokeStyle = stroke.color;
 		context.fillStyle = stroke.color;
-		context.globalAlpha = stroke.tool === "highlighter" ? 0.24 : 0.96;
+		context.globalAlpha = stroke.tool === "highlighter" ? 0.24 : 1;
 		context.globalCompositeOperation = "source-over";
 
 		if (stroke.tool === "highlighter") {
@@ -12388,6 +12412,8 @@ class NativePdfAnnotatorSession {
 		this.handleToolbarDragEnd();
 		const viewContentEl = this.getViewContentEl();
 		viewContentEl?.removeEventListener("touchstart", this.handleZoomGestureTouchStart, { capture: true });
+		this.ownerDocument.removeEventListener("touchend", this.handleZoomGestureTouchEnd, true);
+		this.ownerDocument.removeEventListener("touchcancel", this.handleZoomGestureTouchEnd, true);
 		viewContentEl?.removeEventListener("wheel", this.handleZoomGestureWheel, { capture: true });
 		viewContentEl?.removeEventListener("gesturestart", this.handleZoomGestureStart, { capture: true });
 		viewContentEl?.removeEventListener("pointerdown", this.handleViewPointerDown, { capture: true });

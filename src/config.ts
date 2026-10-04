@@ -110,7 +110,7 @@ export const DEFAULT_SETTINGS: PDFAnnotatorSettings = {
 	inkInputPolicy: "pen-mouse-only",
 	livePreviewMode: "balanced",
 	inkRenderSettings: {
-		thinning: 0.5,
+		thinning: 0.15,
 		streamline: 0.12,
 		smoothing: 0.5,
 		easing: "linear",

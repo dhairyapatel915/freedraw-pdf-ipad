@@ -25,7 +25,7 @@ const tree = ts.createSourceFile("main.ts", source, ts.ScriptTarget.Latest, true
 const sessionClass = tree.statements.find(node => ts.isClassDeclaration(node) && node.name?.text === "NativePdfAnnotatorSession");
 const names = ["handleDocumentPointerDown", "handleCapturedInkPointerDown", "handleFallbackPointerDown",
 	"handleFingerPanPointerDown", "handleFingerPanPointerMove", "applyPendingFingerPan", "handleDocumentTouchStart",
-	"rememberPotentialWebKitStylusPointer", "clearPendingWebKitTouchPointer", "finishFingerPan"];
+	"handleZoomGestureTouchStart", "handleZoomGestureTouchEnd", "rememberPotentialWebKitStylusPointer", "clearPendingWebKitTouchPointer", "finishFingerPan"];
 const members = sessionClass.members.filter(member => names.includes(member.name?.getText(tree)));
 assert.equal(members.length, names.length);
 const globals = { ...input, performance, OVERLAY_CLASS: "overlay", SESSION_ROOT_CLASS: "toolbar", TOOLBAR_SELECTORS: ".toolbar",
@@ -56,18 +56,39 @@ function fixture(policy = "pen-mouse-only", tool = "pen") {
 		},
 		hideToolPreview() {}, cancelFingerPanInertia() {}, pauseCommittedRenderingForViewportMotion() {},
 		resumeCommittedRenderingAfterFingerPan() {},
+		forceFinishStalePdfInteraction() { this.finishFingerPan(false); this.activePdfPointerId = null; },
+		applyOverlayMode() {}, scheduleSyncPages() {}, captureZoomScrollAnchor() {},
 		handlePointerDownForCanvas(event, canvas, forceStylus) { inkStarts++; stylusReclaims += Number(!!forceStylus); }
 	});
 	const event = (properties = {}) => ({
 		pointerType: "touch", pointerId: 1, isPrimary: true, button: 0,
 		clientX: 100, clientY: 200, pressure: .5, width: 5, height: 5, timeStamp: 1,
-		target, preventDefault() {}, stopImmediatePropagation() {}, ...properties
+		target, touches: [{ clientX: 100, clientY: 200 }], preventDefault() {}, stopImmediatePropagation() {}, ...properties
 	});
 	return { session, scroll, event,
 		flush() { for (const [id, callback] of frames) { frames.delete(id); callback(); } },
 		counts: () => ({ inkStarts, stylusReclaims }) };
 }
 
+// Replay a real method chain: pan -> second finger -> native pinch -> lift -> Pencil.
+for (const policy of ["pen-mouse-only", "allow-touch"]) {
+ const f = fixture(policy);
+ f.session.handleDocumentPointerDown(f.event());
+ let prevented = false;
+ f.session.handleDocumentTouchStart({ ...f.event(), touches: [{}, {}], preventDefault() { prevented = true; } });
+ assert.equal(prevented, false, "pinch touchstart must remain native");
+ assert.equal(f.session.multiTouchNavigation, true);
+ assert.equal(f.session.fingerPanPointerId, null, "pinch must release finger capture");
+ const before = f.counts().inkStarts;
+ f.session.handleDocumentPointerDown(f.event({ pointerId: 2 }));
+ assert.equal(f.counts().inkStarts, before, "pinch fingers must not draw");
+ f.session.handleZoomGestureTouchEnd({ touches: [{}] });
+ assert.equal(f.session.multiTouchNavigation, true, "remaining pinch finger must not start ink");
+ f.session.handleZoomGestureTouchEnd({ touches: [] });
+ assert.equal(f.session.multiTouchNavigation, false);
+ f.session.handleDocumentPointerDown(f.event({ pointerType: "pen", pointerId: 3 }));
+ assert.equal(f.counts().inkStarts, before + 1, "Pencil must draw immediately after pinch");
+}
 // Simulated driver fields, not values extracted from the reporters' videos.
 // Exercise the real document pointerdown -> provisional pan -> touchstart reclaim chain.
 const cases = [

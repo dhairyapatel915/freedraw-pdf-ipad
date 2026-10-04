@@ -1,3 +1,18 @@
+# Freedraw PDF — iPad fork
+
+This is a fork of [vividasasana/freedraw-pdf](https://github.com/vividasasana/freedraw-pdf), originally created by vida sana. Version 0.13.6 adds iPad gesture handoff fixes, reduced ink geometry processing, and a ballpoint preset. It has passed the local automated checks; physical iPad verification is still required.
+
+## Install with BRAT on iPad
+
+1. Install and enable **BRAT** from Obsidian's Community plugins.
+2. In BRAT settings, choose **Add beta plugin** and enter `dhairyapatel915/freedraw-pdf-ipad`.
+3. Choose release **0.13.6** and enable Freedraw PDF. This fork uses the original plugin ID so it replaces the original installation. Back up your plugin folder and annotation sidecars first; retain your settings.
+4. Restart Obsidian, then choose **Settings → Freedraw PDF → Use ballpoint**. Set **Finger input → Pan with finger** to write with Pencil and navigate with fingers.
+
+Use this fork's BRAT releases for updates. Installing the upstream community release can overwrite these changes.
+
+---
+
 # Freedraw PDF
 
 Write and draw on PDFs in Obsidian. Freedraw PDF lets you add handwritten notes, highlights, text, and images, insert extra writing pages, and export an annotated copy. Your original PDF stays unchanged.

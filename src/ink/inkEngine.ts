@@ -31,9 +31,6 @@ export interface InkAppendOptions {
 export type InkStrokeOutline = number[][];
 
 const INK_MAX_SMOOTHING_WINDOW_MS = 100;
-const INK_OUTPUT_RATE_HZ = 180;
-const INK_OUTPUT_INTERVAL_MS = 1000 / INK_OUTPUT_RATE_HZ;
-const INK_END_OF_STROKE_MAX_ITERATIONS = 20;
 const INK_SPEED_FLOOR = 1.31;
 const INK_SPEED_CEILING = 1.44;
 const INK_PREDICTION_MS = 8;
@@ -42,13 +39,12 @@ const INK_TAPER_MIN_MULTIPLIER = 0.72;
 const INK_TAPER_MAX_LENGTH = 0.018;
 const INK_MIN_DOT_DISTANCE = 0.0012;
 const INK_PRESSURE_WIDTH_VARIATION = 0.18;
-const INK_CENTERLINE_SMOOTHING_PASSES = 1;
 const INK_PRESSURE_GAIN = 1.25;
 const INK_PRESSURE_SLEW_PER_WIDTH = 0.3;
 const INK_PRESSURE_SMOOTHING_ALPHA = 0.4;
 
 const DEFAULT_INK_RENDER_SETTINGS: InkRenderSettings = {
-	thinning: 0.5,
+	thinning: 0.15,
 	streamline: 0.12,
 	smoothing: 0.5,
 	easing: "linear",
@@ -156,41 +152,6 @@ function getStrokeMidpoint(first: InkPoint, second: InkPoint): InkPoint {
 		pressure: (first.pressure + second.pressure) / 2,
 		t: firstTime !== null && secondTime !== null ? (firstTime + secondTime) / 2 : undefined
 	};
-}
-
-function interpolateStrokePoint(first: InkPoint, second: InkPoint, ratio: number): InkPoint {
-	const firstTime = typeof first.t === "number" ? first.t : null;
-	const secondTime = typeof second.t === "number" ? second.t : null;
-	return {
-		x: first.x + (second.x - first.x) * ratio,
-		y: first.y + (second.y - first.y) * ratio,
-		pressure: clamp(first.pressure + (second.pressure - first.pressure) * ratio, 0.06, 1),
-		t: firstTime !== null && secondTime !== null ? firstTime + (secondTime - firstTime) * ratio : undefined
-	};
-}
-
-function resampleStrokePoints(points: InkPoint[]): InkPoint[] {
-	if (points.length < 2) {
-		return points;
-	}
-	const output: InkPoint[] = [points[0]];
-	for (let index = 1; index < points.length; index += 1) {
-		const previous = points[index - 1];
-		const point = points[index];
-		if (typeof previous.t === "number" && typeof point.t === "number" && point.t > previous.t) {
-			const deltaMs = point.t - previous.t;
-			const steps = Math.min(INK_END_OF_STROKE_MAX_ITERATIONS, Math.floor(deltaMs / INK_OUTPUT_INTERVAL_MS));
-			for (let step = 1; step <= steps; step += 1) {
-				const targetTime = previous.t + step * INK_OUTPUT_INTERVAL_MS;
-				if (targetTime >= point.t) {
-					break;
-				}
-				output.push(interpolateStrokePoint(previous, point, (targetTime - previous.t) / deltaMs));
-			}
-		}
-		output.push(point);
-	}
-	return output;
 }
 
 function getPredictedStrokePoints(points: InkPoint[], predictionStrength = 1): InkPoint[] {
@@ -359,37 +320,6 @@ function getSmoothedStrokePoints(points: InkPoint[], stabilization: number): Ink
 	});
 }
 
-function smoothStrokeCenterline(points: InkPoint[], passes = INK_CENTERLINE_SMOOTHING_PASSES, strength = 1): InkPoint[] {
-	if (points.length < 4 || passes <= 0) {
-		return points;
-	}
-	let result = points;
-	const inset = 0.25 * strength;
-	const retained = 1 - inset;
-	for (let pass = 0; pass < passes; pass += 1) {
-		const next: InkPoint[] = [result[0]];
-		for (let index = 0; index < result.length - 1; index += 1) {
-			const current = result[index];
-			const following = result[index + 1];
-			next.push({
-				x: (current.x * retained) + (following.x * inset),
-				y: (current.y * retained) + (following.y * inset),
-				pressure: clamp((current.pressure * 0.75) + (following.pressure * 0.25), 0.06, 1),
-				t: typeof current.t === "number" && typeof following.t === "number" ? current.t + ((following.t - current.t) * 0.25) : current.t
-			});
-			next.push({
-				x: (current.x * inset) + (following.x * retained),
-				y: (current.y * inset) + (following.y * retained),
-				pressure: clamp((current.pressure * 0.25) + (following.pressure * 0.75), 0.06, 1),
-				t: typeof current.t === "number" && typeof following.t === "number" ? current.t + ((following.t - current.t) * 0.75) : following.t
-			});
-		}
-		next.push(result[result.length - 1]);
-		result = next;
-	}
-	return result;
-}
-
 function average(first: number, second: number): number {
 	return (first + second) / 2;
 }
@@ -398,8 +328,18 @@ function getRenderStrokePoints(points: InkPoint[], predictTail: boolean, predict
 	const inputPoints = predictTail ? getPredictedStrokePoints(points, predictionStrength) : points;
 	const stabilization = settings.streamline;
 	if (stabilization === 0) { return inputPoints; }
-	const preparedPoints = getSmoothedStrokePoints(resampleStrokePoints(inputPoints), stabilization);
-	return smoothStrokeCenterline(preparedPoints, 1, stabilization);
+	const preparedPoints = getSmoothedStrokePoints(inputPoints, stabilization);
+	// A spatial pass preserves sample count and endpoints, unlike subdivision.
+	const weight = stabilization * 0.25;
+	return preparedPoints.map((point, index) => {
+		if (index === 0 || index === preparedPoints.length - 1) { return point; }
+		const before = preparedPoints[index - 1];
+		const after = preparedPoints[index + 1];
+		return { ...point,
+			x: point.x * (1 - 2 * weight) + (before.x + after.x) * weight,
+			y: point.y * (1 - 2 * weight) + (before.y + after.y) * weight
+		};
+	});
 }
 
 export function getSvgPathFromStroke(outline: number[][], closed = true): string {

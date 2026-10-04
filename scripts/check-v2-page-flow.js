@@ -52,6 +52,7 @@ assert.equal(ink.getRenderStrokePoints(samples,false),samples,'Zero stabilizatio
 ink.setInkRenderSettings({streamline:1});
 const stabilized=ink.getRenderStrokePoints(samples,false);
 assert.ok(stabilized.some(p=>Math.abs(p.y-.5)<.004),'High stabilization must reduce alternating wobble');
+assert.equal(stabilized.length,samples.length,'Stabilization must not multiply per-frame geometry');
 assert.equal(stabilized[0].x,samples[0].x);
 assert.equal(stabilized.at(-1).x,samples.at(-1).x);
 let cutOptions;
